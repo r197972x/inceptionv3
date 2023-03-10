@@ -15,6 +15,21 @@ import shutil
 import streamlit as st
 from PIL import Image
 
+from flask import Flask, render_template, request
+import pandas
+import pickle
+
+
+# Use pickle to load in the pre-trained model.
+with open(f'model.pkl', 'rb') as f:
+    model = pickle.load(f)
+app = Flask(__name__,template_folder='templates')
+
+@app.route('/', methods=["GET","POST"])
+def main():
+    if request.method == 'GET':
+        return(render_template('index.html'))
+
 # create directory of frames that have been splitted
 def create_dir(path):
   try:
