@@ -13,7 +13,7 @@ app.config['SECRET_KEY'] = 'secret'
 model = tf.keras.applications.InceptionV3(include_top=True, weights='imagenet')
 
 class VideoForm(FlaskForm):
-    video = FileField('Video', validators=[FileRequired(), FileAllowed(['mp4', 'mkv'], 'Only mp4 and mkv videos are allowed.'), FileSize(max_size=100*1024*1024, message='Video size must be less than 100MB.')])
+    video = FileField('Video', validators=[FileRequired(), FileAllowed(['mp4', 'mkv'], 'Only mp4 and mkv videos are allowed.'), FileSize(max_size=200*1024*1024, message='Video size must be less than 100MB.')])
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_video():
@@ -23,7 +23,7 @@ def upload_video():
         if form.validate_on_submit():
             video = form.video.data
             video_path = os.path.join('uploads', video.filename)
-            max_file_size = 100 * 1024 * 1024 # 10MB maximum file size
+            max_file_size = 200 * 1024 * 1024 # 20MB maximum file size
             if video.content_length > max_file_size:
                 form.video.errors.append(f'File size exceeds {max_file_size/1024/1024}MB.')
             else:
