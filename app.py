@@ -1,109 +1,70 @@
-from __future__ import division, print_function
-# coding=utf-8
-import sys
+from flask import Flask, request, render_template
+from flask_wtf import FlaskForm
+from flask_wtf.file import FileField, FileAllowed, FileRequired, FileSize
+import cv2
+import tensorflow as tf
+import numpy as np
 import os
-import glob
-import re
-import cv
-#import numpy as np
 
-# Keras
-from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads/'
+app.config['SECRET_KEY'] = 'secret'
 
-# Flask utils
-from flask import Flask, redirect, url_for, request, render_template
-from werkzeug.utils import secure_filename
-from gevent.pywsgi import WSGIServer
+model = tf.keras.applications.InceptionV3(include_top=True, weights='imagenet')
 
-# Define a flask app
-app = Flask(_name_)
-app.config['MAX_CONTENT_LENGTH'] = 2*1024*1024
-'
+class VideoForm(FlaskForm):
+    video = FileField('Video', validators=[FileRequired(), FileAllowed(['mp4', 'mkv'], 'Only mp4 and mkv videos are allowed.'), FileSize(max_size=100*1024*1024, message='Video size must be less than 100MB.')])
 
-# Load your trained model
-model = load_model('inceptionv3.h5')
-model._make_predict_function()
-print('Model loaded. Check http://127.0.0.1:5000/')
+@app.route('/', methods=['GET', 'POST'])
+def upload_video():
+    form = VideoForm()
 
-def save_video_frames(video_path):
-    count = 0
-    cap = cv2.VideoCapture(video_path)   # capturing the video from the given path
-    frameRate = cap.get(5) #frame rate
-    x=1
-    names = []
-    while(cap.isOpened()):
-
-      frameId = cap.get(1) #current frame number
-      ret, frame = cap.read()
-
-      if (ret != True):
-          break
-      if (frameId % math.floor(frameRate) == 0):
-          # storing the frames in a new folder named train_1
-          
-          filename ='./train' + video_path.replace(SOURCE,'') +"_frame%d.jpg" % count;count+=1
-          cv2.imwrite(filename, frame)
-    cap.release()
-
-def predict(frame):
-    # Load the pre-trained Inception v3 model
-    model = tf.keras.applications.InceptionV3(weights='imagenet')
-    # pred_df = pd.DataFrame(columns=['image','class'])
-    # Load the image
-    img = cv2.imread(frame)
-
-    # Preprocess the image
-    img = cv2.resize(img, (299, 299))
-    img = img / 255.0
-    img = np.expand_dims(img, axis=0)
-
-    # Run the image through the model to get predictions
-    predictions = model.spredict(img)
-
-    # Decode the predictions
-    decoded_predictions = tf.keras.applications.imagenet_utils.decode_predictions(predictions)
-
-    preds = []
-     # Print the top 5 predictions
-    for i in range(5):
-        # print(decoded_predictions[0][i][1])
-        preds.append({'Class':decoded_predictions[0][i][1],'Source':frame})
-        print(decoded_predictions[0][i][1])
-        # print((decoded_predictions[0][i][1],frame))
-
-
-    return preds
-
-@app.route('/', methods=['GET'])
-def index():
-    # Main page
-    return render_template('index.html')
-
-
-@app.route('/predict', methods=['GET', 'POST'])
-def upload():
     if request.method == 'POST':
-        # Get the file from post request
-        f = request.files['file']
+        if form.validate_on_submit():
+            video = form.video.data
+            video_path = os.path.join('uploads', video.filename)
+            max_file_size = 100 * 1024 * 1024 # 10MB maximum file size
+            if video.content_length > max_file_size:
+                form.video.errors.append(f'File size exceeds {max_file_size/1024/1024}MB.')
+            else:
+                video.save(video_path)
+                frame_dir = os.path.join('frames', video.filename.split('.')[0])
+                os.makedirs(frame_dir, exist_ok=True)
+                num_frames = video_to_frames(video_path, frame_dir)
+                objects = detect_objects(frame_dir)
+                return render_template('result.html', objects=objects)
+    return render_template('upload.html', form=form)
 
-        # Save the file to ./uploads
-        basepath = os.path.dirname(_file_)
-        file_path = os.path.join(
-            basepath, 'uploads', secure_filename(f.filename))
-        f.save(file_path)
+def video_to_frames(video_path, output_path):
+    cap = cv2.VideoCapture(video_path)
+    count = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret == False:
+            break
+        cv2.imwrite(os.path.join(output_path, f'frame{count}.jpg'), frame)
+        count += 1
+    cap.release()
+    return count
 
-        # Make prediction
-        preds = model_predict(file_path, model)
-
-        # Process your result for human
-        # pred_class = preds.argmax(axis=-1)            # Simple argmax
-        pred_class = decode_predictions(preds, top=1)   # ImageNet Decode
-        result = str(pred_class[0][0][1])               # Convert to string
-        return result
-    return None
-
-
-if _name_ == '_main_':
+def detect_objects(frame_dir):
+    images = []
+    for file_name in os.listdir(frame_dir):
+        if file_name.endswith('.jpg'):
+            img_path = os.path.join(frame_dir, file_name)
+            img = cv2.imread(img_path)
+            img = cv2.resize(img, (299, 299), interpolation=cv2.INTER_AREA)
+            img = np.expand_dims(img, axis=0)
+            img = tf.keras.applications.inception_v3.preprocess_input(img)
+            images.append(img)
+    images = np.vstack(images)
+    preds = model.predict(images)
+    results = tf.keras.applications.inception_v3.decode_predictions(preds, top=3)
+    objects = []
+    for result in results:
+        for r in result:
+            objects.append(r[1])
+    return objects
+        
+if __name__ == '__main__':
     app.run(debug=True)
